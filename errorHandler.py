@@ -11,7 +11,11 @@ logger = logging.getLogger(__name__)
 
 def process_event(event: dict) -> dict:
     # Parse event by decoding, decompressing
-    decoded_payload = base64.b64decode(event.get("awslogs").get("data"))
+    awslogs = event.get("awslogs")
+    if not awslogs:
+        logger.error("AWS logs not found in event!")
+        return {}
+    decoded_payload = base64.b64decode(awslogs.get("data"))
     uncompressed_payload = gzip.decompress(decoded_payload)
     payload = json.loads(uncompressed_payload)
     return payload
@@ -19,7 +23,7 @@ def process_event(event: dict) -> dict:
 
 def process_error_payload(
     payload: dict,
-) -> str("Returns parsed response from payload!"):
+) -> tuple[str, str, str, str]:
     # Parse payload to extract necessary information
     logGroup = payload.get("logGroup")
     logStream = payload.get("logStream")
@@ -49,7 +53,7 @@ def send_email(
     logStream: str,
     lambda_function_name: str,
     error_msg: str,
-) -> str("Send an email notification, if successful!"):
+):
     # Sends email notification
     sns_client = boto3.client("sns")
     SNS_TOPIC_ARN = os.environ.get("SNS_TOPIC_ARN", None)
@@ -58,7 +62,7 @@ def send_email(
         return return_func(status_code=500, message="Error sending notification!")
 
     email_body = f"""
-    ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    =============================================================================
     |
     |
     |
@@ -70,7 +74,7 @@ def send_email(
     |
     |
     |
-    ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    =============================================================================
     """
 
     email_subject = f"Error details of Lambda function | {lambda_function_name}"
@@ -83,6 +87,9 @@ def send_email(
         logger.error(e)
 
 
+error_sent = False  
+
+
 def lambda_handler(event, context):
     payload = process_event(event)
     (
@@ -91,6 +98,9 @@ def lambda_handler(event, context):
         lambda_function_name,
         error_msg,
     ) = process_error_payload(payload)
-    send_email(logGroup, logStream, lambda_function_name, error_msg)
+    global error_sent 
+    if not error_sent:
+        send_email(logGroup, logStream, lambda_function_name, error_msg)
+        error_sent = True  
 
     return return_func()
